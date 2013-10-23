@@ -1,0 +1,379 @@
+from SymbolTable import *
+from Quadruple import Quad
+from Quadruple import QuadGen
+from Quadruple import opHierarchy
+from Semantics import mOp
+from Semantics import SemAnalysis
+
+COMPILER RoboParl
+   TYPES = {'Int': 0, 'Double' : 1, 'Bool' : 2, 'String' : 3, 'List' : 4, 'Robot' : 5, 'Void' : 6}
+   TYPE_LIST = ['Int', 'Double', 'Bool', 'String', 'List', 'Robot', 'Void']
+   symTable = SymbolTableHandler()
+   semA = SemAnalysis()
+   quads = QuadGen()
+   typeStack = []
+
+   def declareVar(self, s):
+      if not self.symTable.symbolDecl(s):
+         self.SemErr("Symbol %s is already defined." %s.sName)
+
+   def useVar(self, s):
+      if not self.symTable.symbolUse(s):
+         self.SemErr("Symbol %s is undefined." %s.sName)
+
+   def getType(self, t):
+      return self.TYPES[t]
+
+   def typeVar(self,s):
+      return self.symTable.symbolType(s)
+
+CHARACTERS
+   digit = '0'..'9'. 
+   digitNoZero = digit - '0'.
+   alpha = 'A'..'Z' + 'a'..'z'.
+   alphanum = alpha + digit.
+   string = alphanum + ' ' + "!@#$%^&_()[]{}+=-*<>,.;:/".
+
+TOKENS
+   idConst     =  alpha{alphanum | '_'}.
+   intConst    =  '0' | digitNoZero {digit}.
+   doubleConst =  ('0' | digitNoZero {digit}) '.' ('0' | {digit}).
+   stringConst =  '"' {string} '"'.
+
+COMMENTS FROM "/*" TO "*/" NESTED
+COMMENTS FROM "#" TO '\n'
+
+IGNORE '\r' + '\n' + '\t'
+
+PRODUCTIONS
+
+   RoboParl       
+      =     
+         "Program"               
+         [GlobalVars]
+         Tasks 
+         "End"
+                  (.
+                         for x in self.quads.quads:
+                                          print(x.toStr())
+                  .)
+         .
+
+   GlobalVars
+      =     
+         (VarDec | VarOp)
+         [NxtGlobalVar]
+         .
+
+   NxtGlobalVar 
+      =     
+         GlobalVars
+         .
+
+   VarDec
+      =     
+         "Var" 
+         Type<out type>                 
+         idConst                 (. 
+                                    sName = self.LexString() 
+                                    s = Symbol(sName,type)
+                                    self.declareVar(s)
+                                 .)
+         ['='
+                                 (.
+                                    self.semA.pushType(type)
+                                    self.semA.pushOp(self.LexString())
+                                    self.quads.clearStacks()
+                                 .)
+         Expression
+                                 (.
+                                   
+                                    self.quads.flushOps()
+                                    if not self.semA.checkOp():
+                                       self.SemErr("Invalid assginment")
+                                 .)
+         ]
+         ';'
+         .
+
+   VarOp
+      =
+         idConst                    (.
+                                          s = Symbol(self.LexString())
+                                          self.useVar(s)
+                                       .) 
+         (RobotFunc 
+         | 
+         '=' 
+                                    (.
+                                       self.quads.clearStacks()
+                                    .)
+         Expression
+                                    (.
+                                       self.quads.flushOps()
+                                    .)
+         |
+         TaskCall) 
+         ';'
+         .
+
+   Type<out type>
+      =  
+      ("Robot" | "Int" | "Double" | "Bool" | "String"  | "Void" | "List")                        
+                                    (.
+                                       if(self.LexString() not in self.TYPE_LIST):
+                                          self.SemErr("Invalid Type %s" %(self.LexString()))
+                                          type = 0
+                                       else:
+                                          type = self.TYPES[self.LexString()]
+                                       
+                                    .) 
+      .
+
+   Expression
+      =     
+         Exp 
+         [('>' | '<' | ">=" | "<=" | "==" | "!=") 
+                     (.
+                        self.quads.handleOp(self.LexString())              
+                     .)
+         Exp]
+         .
+
+   Exp
+      =     
+      Term 
+      [('+'
+      | 
+      '-') 
+                     (.
+                        self.quads.handleOp(self.LexString())
+                        self.semA.pushOp(self.LexString())
+                        
+                     .)
+      Exp
+                     (.
+                        if not self.semA.checkOp():
+                           self.SemErr("Invalid operation")
+                     .)
+      ].
+
+   Term
+      =     
+         Factor
+         [('*'
+         | 
+         '/' 
+         | 
+         '%')
+                     (.
+                        self.semA.pushOp(self.LexString())
+                        self.quads.handleOp(self.LexString())
+                        
+                     .) 
+         Term     
+                     (.
+                        if not self.semA.checkOp():
+                           self.SemErr("Invalid operation")
+                     .)
+         ]
+         .
+
+   Factor
+      =     
+         '(' 
+                     (.
+                        self.quads.pushFloor()
+                        
+                     .)
+         Expression
+         ')' 
+                     (.
+                        self.quads.popFloor()
+                        
+                     .)
+         | 
+         '-' 
+         Constant
+         
+         | 
+         Constant
+         .           
+
+   Constant
+      =
+         idConst   
+                     (.
+                        s = Symbol(self.LexString())
+                        self.useVar(s)
+                        sType = self.typeVar(s)
+                        self.semA.pushType(sType)
+                        self.quads.handleVar(s.sName)
+                        
+                     .)              
+         | 
+         intConst    (. 
+                        self.quads.handleVar(self.LexString())
+                        self.semA.pushType(0)
+                     .)
+         | 
+         doubleConst  
+                     (.   
+                        self.quads.handleVar(self.LexString()) 
+                        self.semA.pushType(1)
+                     .)
+         | 
+         "True"
+                        (.   
+                              
+                              self.quads.handleVar(self.LexString())
+                              self.semA.pushType(2)
+                             
+                        .)
+         |
+         "False"
+                         (.   
+                              
+                              self.quads.handleVar(self.LexString())
+                              self.semA.pushType(2)
+                             
+                        .)
+         | 
+         stringConst 
+                        (.    
+                           self.quads.handleVar(self.LexString()) 
+                           self.semA.pushType(3)
+                        .)
+         |
+         List           
+                        (.
+                           self.semA.pushType(4)
+                        .)
+         .
+   List
+      = '[' ListItems ']'.
+
+   ListItems
+      =  Expression [NxtListItem].
+
+   NxtListItem
+      = ',' ListItems.
+
+   Arguments
+      = Expression [NxtArgument].
+
+   NxtArgument
+      =  ',' Arguments.
+
+   Tasks
+      =     
+         Type<out type>      
+         "Task" 
+         idConst                       (. 
+                                          sName = self.LexString()
+                                          s = Symbol(sName,type) 
+                                          self.declareVar(s)
+                                          self.symTable.scopeEntry()
+                                       .)
+         '(' [Params] ')' Block "End"                   
+                                       (.
+                                          self.symTable.scopeExit()
+                                       .)
+         [NxtTask]
+         .
+
+   NxtTask
+      =     Tasks.
+
+   Params
+      =     
+         Type<out type>              
+         idConst                       (.
+                                          sName = self.LexString()
+                                          s = Symbol(sName,type)
+                                          self.declareVar(s)
+                                       .)
+         [NxtParam].
+
+   NxtParam
+      =     ',' Params.
+
+   Block
+      =     (VarDec | VarOp | IfStmt | WhileStmt | ForStmt | WriteStmt | ReadStmt | ResturnStmt | TaskCall | BreakStmt) [NxtBlock].
+
+   NxtBlock
+      =     Block.
+
+   IfStmt
+      =     "If" '(' Expression ')' Block ["Else" Block] "End".
+
+   WhileStmt
+      =     "While"  '(' Expression ')' Block "End".
+
+   ForStmt
+      =     "For" idConst "In" Range [Step] Block "End".
+
+   Range
+      =     '(' Expression ',' Expression ')'.
+
+   Step
+      =     "Step" '(' Expression ')'.
+
+   WriteStmt         
+      =     "Print" '(' Expression ')' ';'.
+
+   ReadStmt       
+      =     "Read" '(' idConst ')' ';'.
+
+   ResturnStmt    
+      =     "Return" Expression ';'.
+
+   TaskCall
+      =
+         '('
+         Arguments
+         ')'
+         .
+
+   BreakStmt         
+      =     "Break" ';'.
+
+   RobotFunc
+      =     '.' (RobotLook | RobotPaint | RobotWall | RobotMove).
+
+   RobotLook         
+      =     (Look | LookStmt).
+
+   Look              
+      =     "lookRight" | "lookLeft" | "lookBack" | "lookNorth" | "lookEast" | "lookSouth" | "lookWest". 
+
+   LookStmt       
+      =     "look" '(' Expression ')'.
+
+   RobotPaint     
+      =     (Paint | PaintStmt).
+
+   Paint             
+      =     ("paintFront" | "paintHere" | "paintBack" | "paintRight" | "paintLeft") '.' ("Red" | "Green" | "Blue").
+
+   PaintStmt         
+      =     "paint" '(' Expression ',' Expression ')'.
+
+   RobotWall   
+      =     (Wall | WallStmt).
+
+   Wall              
+      =     "wallFront" | "wallBack" | "wallLeft" | "wallRight".
+
+   WallStmt       
+      =     "wall" '(' Expression ')'.
+
+   RobotMove         
+      =     (Move | MoveStmt).
+
+   Move              
+      =     "moveFront" | "moveBack".
+
+   MoveStmt       
+      =     "move" '(' Expression ')'.
+END RoboParl.

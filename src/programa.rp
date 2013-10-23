@@ -1,0 +1,27 @@
+Program
+	
+	Var Double x = 2.0;
+
+	Int Task raqueta(Int x)
+		Var Int y = 2*2/x;
+	End
+
+	Void Task Main()
+		Var Double x = 2*6/2.0;
+		Var Int w = 2;
+		Var Int z = 2;
+		Var Int y = w*2/2*2;
+		Var Int d2 = raqueta;
+
+		If(2 == True)
+			z = 3;
+			While(2>=3)
+				z=4;
+			End
+		End
+		
+	End
+
+	
+
+End
