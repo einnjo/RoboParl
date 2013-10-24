@@ -252,7 +252,7 @@ mOp['='] = [	[
 				
 				]
 mOp['=='] = [	[
-						2,	# INT == INT = INT 				*
+						2,	# INT == INT = BOOL 				*
 						2,	# INT == DOUBLE = BOOL 		
 						2,	# INT == BOOL = BOOL
 						2,	# INT == STRING = BOOL
@@ -261,7 +261,7 @@ mOp['=='] = [	[
 					],
 					[
 						2,	# DOUBLE == INT = BOOL 		
-						 1,	# DOUBLE == DOUBLE = DOUBLE 	*
+						2,	# DOUBLE == DOUBLE = BOOL 	*
 						2,	# DOUBLE == BOOL = BOOL
 						2,	# DOUBLE == STRING = BOOL
 						2,	# DOUBLE == LIST = BOOL
@@ -279,7 +279,7 @@ mOp['=='] = [	[
 						2,	# STRING == INT = BOOL
 						2,	# STRING == DOUBLE = BOOL
 						2,	# STRING == BOOL = BOOL
-						 3,	# STRING == STRING = STRING		*
+						2,	# STRING == STRING = BOOL		*
 						2,	# STRING == LIST = BOOL
 						2,	# STRING == ROBOT = BOOL
 					],
@@ -293,6 +293,10 @@ mOp['=='] = [	[
 					],
 				
 				]
+mOp['>'] = mOp['==']
+mOp['<'] = mOp['==']
+mOp['>='] = mOp['==']
+mOp['<='] = mOp['==']
 
 
 class SemAnalysis:
@@ -310,6 +314,7 @@ class SemAnalysis:
 		op = self.opStack.pop()
 		t2 = self.typeStack.pop()
 		t1 = self.typeStack.pop()
+		#print op + " " + str(t2) + " " + str(t1)
 		result = mOp[op][t1][t2]
 		if(result == -1):
 			self.typeStack.append(t1)

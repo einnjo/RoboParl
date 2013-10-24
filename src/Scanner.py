@@ -88,8 +88,8 @@ class Scanner(object):
    eofSym  = 0
 
    charSetSize = 256
-   maxT = 72
-   noSym = 72
+   maxT = 71
+   noSym = 71
    start = [
      0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
      0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
@@ -250,66 +250,64 @@ class Scanner(object):
          self.t.kind = 39
       elif lit == "In":
          self.t.kind = 40
-      elif lit == "Step":
-         self.t.kind = 41
       elif lit == "Print":
-         self.t.kind = 42
+         self.t.kind = 41
       elif lit == "Read":
-         self.t.kind = 43
+         self.t.kind = 42
       elif lit == "Return":
-         self.t.kind = 44
+         self.t.kind = 43
       elif lit == "Break":
-         self.t.kind = 45
+         self.t.kind = 44
       elif lit == "lookRight":
-         self.t.kind = 47
+         self.t.kind = 46
       elif lit == "lookLeft":
-         self.t.kind = 48
+         self.t.kind = 47
       elif lit == "lookBack":
-         self.t.kind = 49
+         self.t.kind = 48
       elif lit == "lookNorth":
-         self.t.kind = 50
+         self.t.kind = 49
       elif lit == "lookEast":
-         self.t.kind = 51
+         self.t.kind = 50
       elif lit == "lookSouth":
-         self.t.kind = 52
+         self.t.kind = 51
       elif lit == "lookWest":
-         self.t.kind = 53
+         self.t.kind = 52
       elif lit == "look":
-         self.t.kind = 54
+         self.t.kind = 53
       elif lit == "paintFront":
-         self.t.kind = 55
+         self.t.kind = 54
       elif lit == "paintHere":
-         self.t.kind = 56
+         self.t.kind = 55
       elif lit == "paintBack":
-         self.t.kind = 57
+         self.t.kind = 56
       elif lit == "paintRight":
-         self.t.kind = 58
+         self.t.kind = 57
       elif lit == "paintLeft":
-         self.t.kind = 59
+         self.t.kind = 58
       elif lit == "Red":
-         self.t.kind = 60
+         self.t.kind = 59
       elif lit == "Green":
-         self.t.kind = 61
+         self.t.kind = 60
       elif lit == "Blue":
-         self.t.kind = 62
+         self.t.kind = 61
       elif lit == "paint":
-         self.t.kind = 63
+         self.t.kind = 62
       elif lit == "wallFront":
-         self.t.kind = 64
+         self.t.kind = 63
       elif lit == "wallBack":
-         self.t.kind = 65
+         self.t.kind = 64
       elif lit == "wallLeft":
-         self.t.kind = 66
+         self.t.kind = 65
       elif lit == "wallRight":
-         self.t.kind = 67
+         self.t.kind = 66
       elif lit == "wall":
-         self.t.kind = 68
+         self.t.kind = 67
       elif lit == "moveFront":
-         self.t.kind = 69
+         self.t.kind = 68
       elif lit == "moveBack":
-         self.t.kind = 70
+         self.t.kind = 69
       elif lit == "move":
-         self.t.kind = 71
+         self.t.kind = 70
 
 
    def NextToken( self ):
@@ -470,7 +468,7 @@ class Scanner(object):
             self.t.kind = 34
             done = True
          elif state == 24:
-            self.t.kind = 46
+            self.t.kind = 45
             done = True
          elif state == 25:
             if self.ch == '=':

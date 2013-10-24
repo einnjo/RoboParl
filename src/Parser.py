@@ -178,7 +178,7 @@ class Parser( object ):
    _intConst = 2
    _doubleConst = 3
    _stringConst = 4
-   maxT = 72
+   maxT = 71
 
    T          = True
    x          = False
@@ -190,20 +190,24 @@ class Parser( object ):
    semA = SemAnalysis()
    quads = QuadGen()
    typeStack = []
+   currentProc = None
 
-   def declareVar(self, s):
-      if not self.symTable.symbolDecl(s):
-         self.SemErr("Symbol %s is already defined." %s.sName)
+   def declareVar(self, sym):
+      if not self.symTable.symbolDecl(sym):
+         self.SemErr("Symbol %s is already defined." %sym.symId)
 
-   def useVar(self, s):
-      if not self.symTable.symbolUse(s):
-         self.SemErr("Symbol %s is undefined." %s.sName)
+   def useVar(self, symId):
+      if not self.symTable.symbolUse(symId):
+         self.SemErr("Symbol %s is undefined." %symId)
 
    def getType(self, t):
       return self.TYPES[t]
 
-   def typeVar(self,s):
-      return self.symTable.symbolType(s)
+   def typeVar(self,symId):
+      if self.symTable.getSymbol(symId) is not None:
+         return self.symTable.getSymbol(symId).symType
+      else:
+         return -1
 
 
    def __init__( self ):
@@ -289,12 +293,17 @@ class Parser( object ):
 
    def RoboParl( self ):
       self.Expect(5)
+      # declare global procedure
+      proc = Procedure("__Global__",-1)
+      self.declareVar(proc)
+      self.currentProc = proc 
+      
       if (self.la.kind == 1 or self.la.kind == 7):
          self.GlobalVars()
       self.Tasks()
       self.Expect(6)
       for x in self.quads.quads:
-                       print(x.toStr())
+         print(x.toStr())
       
 
    def GlobalVars( self ):
@@ -303,75 +312,107 @@ class Parser( object ):
       elif self.la.kind == 1:
          self.VarOp()
       else:
-         self.SynErr(73)
+         self.SynErr(72)
       if (self.la.kind == 1 or self.la.kind == 7):
          self.NxtGlobalVar()
 
    def Tasks( self ):
+      while not (self.StartOf(1)):
+         self.SynErr(73)
+         self.Get()
       type = self.Type()
       self.Expect(35)
       self.Expect(1)
-      sName = self.LexString()
-      s = Symbol(sName,type) 
-      self.declareVar(s)
+      # declare a new procedure in the table
+      procId = self.LexString()
+      proc = Procedure(procId,type) 
+      self.declareVar(proc)
+            # enter a new scope
       self.symTable.scopeEntry()
+            # set current procedure
+      self.currentProc = proc
       
       self.Expect(28)
-      if (self.StartOf(1)):
+      if (self.StartOf(2)):
          self.Params()
       self.Expect(29)
+      # set procedures starting point
+      proc.addr = Quad.QuadId+1
+      
       self.Block()
       self.Expect(6)
+      # exit scope
       self.symTable.scopeExit()
       
-      if (self.StartOf(1)):
+      if (self.StartOf(2)):
          self.NxtTask()
 
    def VarDec( self ):
+      while not (self.la.kind == 0 or self.la.kind == 7):
+         self.SynErr(74)
+         self.Get()
       self.Expect(7)
       type = self.Type()
       self.Expect(1)
-      sName = self.LexString() 
-      s = Symbol(sName,type)
-      self.declareVar(s)
-      
+      # declare a new symbol in the table
+      symId = self.LexString() 
+      sym = Symbol(symId,type)
+      self.declareVar(sym)
+            # add symbol to procedures local variables
+      self.currentProc.addLocalVar(sym)
+      print ("Se agrego a proc %s la var %s" % (self.currentProc.symId, symId))
+            
       if (self.la.kind == 8):
          self.Get( )
          self.semA.pushType(type)
          self.semA.pushOp(self.LexString())
-         self.quads.clearStacks()
+         
          
          self.Expression()
-         self.quads.flushOps()
+         self.quads.assignmentQuad(symId)
          if not self.semA.checkOp():
             self.SemErr("Invalid assginment")
          
+      while not (self.la.kind == 0 or self.la.kind == 9):
+         self.SynErr(75)
+         self.Get()
       self.Expect(9)
 
    def VarOp( self ):
       self.Expect(1)
-      s = Symbol(self.LexString())
-      self.useVar(s)
-      
-      if self.la.kind == 46:
+      # check if id is declared
+      sym = self.symTable.getSymbol(self.LexString())
+      if sym is None:
+         self.SemErr("Symbol %s is undefined." %self.LexString())
+            
+      if self.la.kind == 45:
          self.RobotFunc()
       elif self.la.kind == 8:
          self.Get( )
-         self.quads.clearStacks()
-         
+         self.semA.pushType(sym.symType)
+         self.semA.pushOp(self.LexString())
+                  
          self.Expression()
-         self.quads.flushOps()
+         self.quads.assignmentQuad(sym.symId)
+         if not self.semA.checkOp():
+            self.SemErr("Invalid assginment")
          
       elif self.la.kind == 28:
          self.TaskCall()
       else:
-         self.SynErr(74)
+         self.SynErr(76)
+      while not (self.la.kind == 0 or self.la.kind == 9):
+         self.SynErr(77)
+         self.Get()
       self.Expect(9)
 
    def NxtGlobalVar( self ):
       self.GlobalVars()
 
    def Type( self ):
+      while not (self.StartOf(1)):
+         self.SynErr(78)
+         self.Get()
       if self.la.kind == 10:
          self.Get( )
       elif self.la.kind == 11:
@@ -387,7 +428,7 @@ class Parser( object ):
       elif self.la.kind == 16:
          self.Get( )
       else:
-         self.SynErr(75)
+         self.SynErr(79)
       if(self.LexString() not in self.TYPE_LIST):
          self.SemErr("Invalid Type %s" %(self.LexString()))
          type = 0
@@ -399,7 +440,7 @@ class Parser( object ):
 
    def Expression( self ):
       self.Exp()
-      if (self.StartOf(2)):
+      if (self.StartOf(3)):
          if self.la.kind == 17:
             self.Get( )
          elif self.la.kind == 18:
@@ -412,22 +453,28 @@ class Parser( object ):
             self.Get( )
          else:
             self.Get( )
-         self.quads.handleOp(self.LexString())              
+         self.quads.handleOp(self.LexString())
+         self.semA.pushOp(self.LexString())              
          
          self.Exp()
+         if not self.semA.checkOp():
+            self.SemErr("Invalid operation")
+                  
+      self.quads.flushOps()
+            
 
    def RobotFunc( self ):
-      self.Expect(46)
-      if self.StartOf(3):
+      self.Expect(45)
+      if self.StartOf(4):
          self.RobotLook()
-      elif self.StartOf(4):
-         self.RobotPaint()
       elif self.StartOf(5):
+         self.RobotPaint()
+      elif self.StartOf(6):
          self.RobotWall()
-      elif self.la.kind == 69 or self.la.kind == 70 or self.la.kind == 71:
+      elif self.la.kind == 68 or self.la.kind == 69 or self.la.kind == 70:
          self.RobotMove()
       else:
-         self.SynErr(76)
+         self.SynErr(80)
 
    def TaskCall( self ):
       self.Expect(28)
@@ -482,19 +529,19 @@ class Parser( object ):
       elif self.la.kind == 24:
          self.Get( )
          self.Constant()
-      elif self.StartOf(6):
+      elif self.StartOf(7):
          self.Constant()
       else:
-         self.SynErr(77)
+         self.SynErr(81)
 
    def Constant( self ):
       if self.la.kind == 1:
          self.Get( )
-         s = Symbol(self.LexString())
-         self.useVar(s)
-         sType = self.typeVar(s)
-         self.semA.pushType(sType)
-         self.quads.handleVar(s.sName)
+         symId = self.LexString()
+         self.useVar(symId)
+         symType = self.typeVar(symId)
+         self.semA.pushType(symType)
+         self.quads.handleVar(symId)
          
          
       elif self.la.kind == 2:
@@ -527,7 +574,7 @@ class Parser( object ):
          self.semA.pushType(4)
          
       else:
-         self.SynErr(78)
+         self.SynErr(82)
 
    def List( self ):
       self.Expect(32)
@@ -553,12 +600,19 @@ class Parser( object ):
       self.Arguments()
 
    def Params( self ):
+      while not (self.StartOf(1)):
+         self.SynErr(83)
+         self.Get()
       type = self.Type()
       self.Expect(1)
-      sName = self.LexString()
-      s = Symbol(sName,type)
-      self.declareVar(s)
-      
+      # parameter declaration
+      symId = self.LexString()
+      sym = Symbol(symId,type)
+      self.declareVar(sym)
+            # add parameter to procedure
+      self.currentProc.addParam(sym)
+      print ("Se agrego a proc %s el parametro %s" % (self.currentProc.symId, symId))
+                        
       if (self.la.kind == 34):
          self.NxtParam()
 
@@ -573,19 +627,19 @@ class Parser( object ):
          self.WhileStmt()
       elif self.la.kind == 39:
          self.ForStmt()
-      elif self.la.kind == 42:
+      elif self.la.kind == 41:
          self.WriteStmt()
-      elif self.la.kind == 43:
+      elif self.la.kind == 42:
          self.ReadStmt()
-      elif self.la.kind == 44:
+      elif self.la.kind == 43:
          self.ResturnStmt()
       elif self.la.kind == 28:
          self.TaskCall()
-      elif self.la.kind == 45:
+      elif self.la.kind == 44:
          self.BreakStmt()
       else:
-         self.SynErr(79)
-      if (self.StartOf(7)):
+         self.SynErr(84)
+      if (self.StartOf(8)):
          self.NxtBlock()
 
    def NxtTask( self ):
@@ -596,55 +650,110 @@ class Parser( object ):
       self.Params()
 
    def IfStmt( self ):
+      while not (self.la.kind == 0 or self.la.kind == 36):
+         self.SynErr(85)
+         self.Get()
       self.Expect(36)
       self.Expect(28)
       self.Expression()
       self.Expect(29)
+      self.quads.falseJmp()
+      
       self.Block()
       if (self.la.kind == 37):
+         while not (self.la.kind == 0 or self.la.kind == 37):
+            self.SynErr(86)
+            self.Get()
+         self.quads.elseStmt()
+         
          self.Get( )
          self.Block()
+      self.quads.endIf()
+      
+      while not (self.la.kind == 0 or self.la.kind == 6):
+         self.SynErr(87)
+         self.Get()
       self.Expect(6)
 
    def WhileStmt( self ):
+      while not (self.la.kind == 0 or self.la.kind == 38):
+         self.SynErr(88)
+         self.Get()
       self.Expect(38)
       self.Expect(28)
+      self.quads.jumps.append(Quad.QuadId)
+      
       self.Expression()
+      self.quads.falseJmp()
+            
       self.Expect(29)
       self.Block()
+      self.quads.endWhile()
+      
+      while not (self.la.kind == 0 or self.la.kind == 6):
+         self.SynErr(89)
+         self.Get()
       self.Expect(6)
 
    def ForStmt( self ):
+      while not (self.la.kind == 0 or self.la.kind == 39):
+         self.SynErr(90)
+         self.Get()
       self.Expect(39)
       self.Expect(1)
       self.Expect(40)
       self.Range()
-      if (self.la.kind == 41):
-         self.Step()
       self.Block()
+      while not (self.la.kind == 0 or self.la.kind == 6):
+         self.SynErr(91)
+         self.Get()
       self.Expect(6)
 
    def WriteStmt( self ):
-      self.Expect(42)
+      while not (self.la.kind == 0 or self.la.kind == 41):
+         self.SynErr(92)
+         self.Get()
+      self.Expect(41)
       self.Expect(28)
       self.Expression()
       self.Expect(29)
+      while not (self.la.kind == 0 or self.la.kind == 9):
+         self.SynErr(93)
+         self.Get()
       self.Expect(9)
 
    def ReadStmt( self ):
-      self.Expect(43)
+      while not (self.la.kind == 0 or self.la.kind == 42):
+         self.SynErr(94)
+         self.Get()
+      self.Expect(42)
       self.Expect(28)
       self.Expect(1)
       self.Expect(29)
+      while not (self.la.kind == 0 or self.la.kind == 9):
+         self.SynErr(95)
+         self.Get()
       self.Expect(9)
 
    def ResturnStmt( self ):
-      self.Expect(44)
+      while not (self.la.kind == 0 or self.la.kind == 43):
+         self.SynErr(96)
+         self.Get()
+      self.Expect(43)
       self.Expression()
+      while not (self.la.kind == 0 or self.la.kind == 9):
+         self.SynErr(97)
+         self.Get()
       self.Expect(9)
 
    def BreakStmt( self ):
-      self.Expect(45)
+      while not (self.la.kind == 0 or self.la.kind == 44):
+         self.SynErr(98)
+         self.Get()
+      self.Expect(44)
+      while not (self.la.kind == 0 or self.la.kind == 9):
+         self.SynErr(99)
+         self.Get()
       self.Expect(9)
 
    def NxtBlock( self ):
@@ -655,48 +764,47 @@ class Parser( object ):
       self.Expression()
       self.Expect(34)
       self.Expression()
-      self.Expect(29)
-
-   def Step( self ):
-      self.Expect(41)
-      self.Expect(28)
-      self.Expression()
+      if (self.la.kind == 34):
+         self.Get( )
+         self.Expression()
       self.Expect(29)
 
    def RobotLook( self ):
-      if self.StartOf(8):
+      if self.StartOf(9):
          self.Look()
-      elif self.la.kind == 54:
+      elif self.la.kind == 53:
          self.LookStmt()
       else:
-         self.SynErr(80)
+         self.SynErr(100)
 
    def RobotPaint( self ):
-      if self.StartOf(9):
+      if self.StartOf(10):
          self.Paint()
-      elif self.la.kind == 63:
+      elif self.la.kind == 62:
          self.PaintStmt()
       else:
-         self.SynErr(81)
+         self.SynErr(101)
 
    def RobotWall( self ):
-      if self.StartOf(10):
+      if self.StartOf(11):
          self.Wall()
-      elif self.la.kind == 68:
+      elif self.la.kind == 67:
          self.WallStmt()
       else:
-         self.SynErr(82)
+         self.SynErr(102)
 
    def RobotMove( self ):
-      if self.la.kind == 69 or self.la.kind == 70:
+      if self.la.kind == 68 or self.la.kind == 69:
          self.Move()
-      elif self.la.kind == 71:
+      elif self.la.kind == 70:
          self.MoveStmt()
       else:
-         self.SynErr(83)
+         self.SynErr(103)
 
    def Look( self ):
-      if self.la.kind == 47:
+      if self.la.kind == 46:
+         self.Get( )
+      elif self.la.kind == 47:
          self.Get( )
       elif self.la.kind == 48:
          self.Get( )
@@ -708,19 +816,19 @@ class Parser( object ):
          self.Get( )
       elif self.la.kind == 52:
          self.Get( )
-      elif self.la.kind == 53:
-         self.Get( )
       else:
-         self.SynErr(84)
+         self.SynErr(104)
 
    def LookStmt( self ):
-      self.Expect(54)
+      self.Expect(53)
       self.Expect(28)
       self.Expression()
       self.Expect(29)
 
    def Paint( self ):
-      if self.la.kind == 55:
+      if self.la.kind == 54:
+         self.Get( )
+      elif self.la.kind == 55:
          self.Get( )
       elif self.la.kind == 56:
          self.Get( )
@@ -728,22 +836,20 @@ class Parser( object ):
          self.Get( )
       elif self.la.kind == 58:
          self.Get( )
-      elif self.la.kind == 59:
-         self.Get( )
       else:
-         self.SynErr(85)
-      self.Expect(46)
-      if self.la.kind == 60:
+         self.SynErr(105)
+      self.Expect(45)
+      if self.la.kind == 59:
+         self.Get( )
+      elif self.la.kind == 60:
          self.Get( )
       elif self.la.kind == 61:
          self.Get( )
-      elif self.la.kind == 62:
-         self.Get( )
       else:
-         self.SynErr(86)
+         self.SynErr(106)
 
    def PaintStmt( self ):
-      self.Expect(63)
+      self.Expect(62)
       self.Expect(28)
       self.Expression()
       self.Expect(34)
@@ -751,33 +857,33 @@ class Parser( object ):
       self.Expect(29)
 
    def Wall( self ):
-      if self.la.kind == 64:
+      if self.la.kind == 63:
+         self.Get( )
+      elif self.la.kind == 64:
          self.Get( )
       elif self.la.kind == 65:
          self.Get( )
       elif self.la.kind == 66:
          self.Get( )
-      elif self.la.kind == 67:
-         self.Get( )
       else:
-         self.SynErr(87)
+         self.SynErr(107)
 
    def WallStmt( self ):
-      self.Expect(68)
+      self.Expect(67)
       self.Expect(28)
       self.Expression()
       self.Expect(29)
 
    def Move( self ):
-      if self.la.kind == 69:
+      if self.la.kind == 68:
          self.Get( )
-      elif self.la.kind == 70:
+      elif self.la.kind == 69:
          self.Get( )
       else:
-         self.SynErr(88)
+         self.SynErr(108)
 
    def MoveStmt( self ):
-      self.Expect(71)
+      self.Expect(70)
       self.Expect(28)
       self.Expression()
       self.Expect(29)
@@ -794,17 +900,18 @@ class Parser( object ):
 
 
    set = [
-      [T,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x],
-      [x,x,x,x, x,x,x,x, x,x,T,T, T,T,T,T, T,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x],
-      [x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,T,T,T, T,T,T,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x],
-      [x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,T, T,T,T,T, T,T,T,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x],
-      [x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,T, T,T,T,T, x,x,x,T, x,x,x,x, x,x,x,x, x,x],
-      [x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, T,T,T,T, T,x,x,x, x,x],
-      [x,T,T,T, T,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,T,T, T,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x],
-      [x,T,x,x, x,x,x,T, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, T,x,x,x, x,x,x,x, T,x,T,T, x,x,T,T, T,T,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x],
-      [x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,T, T,T,T,T, T,T,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x],
-      [x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,T, T,T,T,T, x,x,x,x, x,x,x,x, x,x,x,x, x,x],
-      [x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, T,T,T,T, x,x,x,x, x,x]
+      [T,x,x,x, x,x,T,T, x,T,T,T, T,T,T,T, T,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, T,T,T,T, x,T,T,T, T,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x],
+      [T,x,x,x, x,x,x,x, x,x,T,T, T,T,T,T, T,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x],
+      [x,x,x,x, x,x,x,x, x,x,T,T, T,T,T,T, T,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x],
+      [x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,T,T,T, T,T,T,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x],
+      [x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,T,T, T,T,T,T, T,T,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x],
+      [x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,T,T, T,T,T,x, x,x,T,x, x,x,x,x, x,x,x,x, x],
+      [x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,T, T,T,T,T, x,x,x,x, x],
+      [x,T,T,T, T,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,T,T, T,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x],
+      [x,T,x,x, x,x,x,T, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, T,x,x,x, x,x,x,x, T,x,T,T, x,T,T,T, T,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x],
+      [x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,T,T, T,T,T,T, T,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x],
+      [x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,T,T, T,T,T,x, x,x,x,x, x,x,x,x, x,x,x,x, x],
+      [x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,T, T,T,T,x, x,x,x,x, x]
 
       ]
 
@@ -851,54 +958,74 @@ class Parser( object ):
       38 : "\"While\" expected",
       39 : "\"For\" expected",
       40 : "\"In\" expected",
-      41 : "\"Step\" expected",
-      42 : "\"Print\" expected",
-      43 : "\"Read\" expected",
-      44 : "\"Return\" expected",
-      45 : "\"Break\" expected",
-      46 : "\".\" expected",
-      47 : "\"lookRight\" expected",
-      48 : "\"lookLeft\" expected",
-      49 : "\"lookBack\" expected",
-      50 : "\"lookNorth\" expected",
-      51 : "\"lookEast\" expected",
-      52 : "\"lookSouth\" expected",
-      53 : "\"lookWest\" expected",
-      54 : "\"look\" expected",
-      55 : "\"paintFront\" expected",
-      56 : "\"paintHere\" expected",
-      57 : "\"paintBack\" expected",
-      58 : "\"paintRight\" expected",
-      59 : "\"paintLeft\" expected",
-      60 : "\"Red\" expected",
-      61 : "\"Green\" expected",
-      62 : "\"Blue\" expected",
-      63 : "\"paint\" expected",
-      64 : "\"wallFront\" expected",
-      65 : "\"wallBack\" expected",
-      66 : "\"wallLeft\" expected",
-      67 : "\"wallRight\" expected",
-      68 : "\"wall\" expected",
-      69 : "\"moveFront\" expected",
-      70 : "\"moveBack\" expected",
-      71 : "\"move\" expected",
-      72 : "??? expected",
-      73 : "invalid GlobalVars",
-      74 : "invalid VarOp",
-      75 : "invalid Type",
-      76 : "invalid RobotFunc",
-      77 : "invalid Factor",
-      78 : "invalid Constant",
-      79 : "invalid Block",
-      80 : "invalid RobotLook",
-      81 : "invalid RobotPaint",
-      82 : "invalid RobotWall",
-      83 : "invalid RobotMove",
-      84 : "invalid Look",
-      85 : "invalid Paint",
-      86 : "invalid Paint",
-      87 : "invalid Wall",
-      88 : "invalid Move",
+      41 : "\"Print\" expected",
+      42 : "\"Read\" expected",
+      43 : "\"Return\" expected",
+      44 : "\"Break\" expected",
+      45 : "\".\" expected",
+      46 : "\"lookRight\" expected",
+      47 : "\"lookLeft\" expected",
+      48 : "\"lookBack\" expected",
+      49 : "\"lookNorth\" expected",
+      50 : "\"lookEast\" expected",
+      51 : "\"lookSouth\" expected",
+      52 : "\"lookWest\" expected",
+      53 : "\"look\" expected",
+      54 : "\"paintFront\" expected",
+      55 : "\"paintHere\" expected",
+      56 : "\"paintBack\" expected",
+      57 : "\"paintRight\" expected",
+      58 : "\"paintLeft\" expected",
+      59 : "\"Red\" expected",
+      60 : "\"Green\" expected",
+      61 : "\"Blue\" expected",
+      62 : "\"paint\" expected",
+      63 : "\"wallFront\" expected",
+      64 : "\"wallBack\" expected",
+      65 : "\"wallLeft\" expected",
+      66 : "\"wallRight\" expected",
+      67 : "\"wall\" expected",
+      68 : "\"moveFront\" expected",
+      69 : "\"moveBack\" expected",
+      70 : "\"move\" expected",
+      71 : "??? expected",
+      72 : "invalid GlobalVars",
+      73 : "this symbol not expected in Tasks",
+      74 : "this symbol not expected in VarDec",
+      75 : "this symbol not expected in VarDec",
+      76 : "invalid VarOp",
+      77 : "this symbol not expected in VarOp",
+      78 : "this symbol not expected in Type",
+      79 : "invalid Type",
+      80 : "invalid RobotFunc",
+      81 : "invalid Factor",
+      82 : "invalid Constant",
+      83 : "this symbol not expected in Params",
+      84 : "invalid Block",
+      85 : "this symbol not expected in IfStmt",
+      86 : "this symbol not expected in IfStmt",
+      87 : "this symbol not expected in IfStmt",
+      88 : "this symbol not expected in WhileStmt",
+      89 : "this symbol not expected in WhileStmt",
+      90 : "this symbol not expected in ForStmt",
+      91 : "this symbol not expected in ForStmt",
+      92 : "this symbol not expected in WriteStmt",
+      93 : "this symbol not expected in WriteStmt",
+      94 : "this symbol not expected in ReadStmt",
+      95 : "this symbol not expected in ReadStmt",
+      96 : "this symbol not expected in ResturnStmt",
+      97 : "this symbol not expected in ResturnStmt",
+      98 : "this symbol not expected in BreakStmt",
+      99 : "this symbol not expected in BreakStmt",
+      100 : "invalid RobotLook",
+      101 : "invalid RobotPaint",
+      102 : "invalid RobotWall",
+      103 : "invalid RobotMove",
+      104 : "invalid Look",
+      105 : "invalid Paint",
+      106 : "invalid Paint",
+      107 : "invalid Wall",
+      108 : "invalid Move",
       }
 
 

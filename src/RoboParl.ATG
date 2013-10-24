@@ -12,20 +12,24 @@ COMPILER RoboParl
    semA = SemAnalysis()
    quads = QuadGen()
    typeStack = []
+   currentProc = None
 
-   def declareVar(self, s):
-      if not self.symTable.symbolDecl(s):
-         self.SemErr("Symbol %s is already defined." %s.sName)
+   def declareVar(self, sym):
+      if not self.symTable.symbolDecl(sym):
+         self.SemErr("Symbol %s is already defined." %sym.symId)
 
-   def useVar(self, s):
-      if not self.symTable.symbolUse(s):
-         self.SemErr("Symbol %s is undefined." %s.sName)
+   def useVar(self, symId):
+      if not self.symTable.symbolUse(symId):
+         self.SemErr("Symbol %s is undefined." %symId)
 
    def getType(self, t):
       return self.TYPES[t]
 
-   def typeVar(self,s):
-      return self.symTable.symbolType(s)
+   def typeVar(self,symId):
+      if self.symTable.getSymbol(symId) is not None:
+         return self.symTable.getSymbol(symId).symType
+      else:
+         return -1
 
 CHARACTERS
    digit = '0'..'9'. 
@@ -49,14 +53,19 @@ PRODUCTIONS
 
    RoboParl       
       =     
-         "Program"               
+         "Program"               (.
+                                    # declare global procedure
+                                    proc = Procedure("__Global__",-1)
+                                    self.declareVar(proc)
+                                    self.currentProc = proc 
+                                 .)
          [GlobalVars]
          Tasks 
          "End"
-                  (.
-                         for x in self.quads.quads:
-                                          print(x.toStr())
-                  .)
+                                 (.
+                                    for x in self.quads.quads:
+                                       print(x.toStr())
+                                 .)
          .
 
    GlobalVars
@@ -71,54 +80,69 @@ PRODUCTIONS
          .
 
    VarDec
-      =     
+      =  
+         SYNC   
          "Var" 
          Type<out type>                 
          idConst                 (. 
-                                    sName = self.LexString() 
-                                    s = Symbol(sName,type)
-                                    self.declareVar(s)
+                                    # declare a new symbol in the table
+                                    symId = self.LexString() 
+                                    sym = Symbol(symId,type)
+                                    self.declareVar(sym)
+
+                                    # add symbol to procedures local variables
+                                    self.currentProc.addLocalVar(sym)
+                                    print ("Se agrego a proc %s la var %s" % (self.currentProc.symId, symId))
+
                                  .)
          ['='
                                  (.
                                     self.semA.pushType(type)
                                     self.semA.pushOp(self.LexString())
-                                    self.quads.clearStacks()
+                                    
                                  .)
          Expression
                                  (.
-                                   
-                                    self.quads.flushOps()
+                                    self.quads.assignmentQuad(symId)
                                     if not self.semA.checkOp():
                                        self.SemErr("Invalid assginment")
                                  .)
          ]
+         SYNC
          ';'
          .
 
    VarOp
       =
          idConst                    (.
-                                          s = Symbol(self.LexString())
-                                          self.useVar(s)
+                                          # check if id is declared
+                                          sym = self.symTable.getSymbol(self.LexString())
+                                          if sym is None:
+                                             self.SemErr("Symbol %s is undefined." %self.LexString())
+                     
                                        .) 
          (RobotFunc 
          | 
          '=' 
                                     (.
-                                       self.quads.clearStacks()
+                                          self.semA.pushType(sym.symType)
+                                          self.semA.pushOp(self.LexString())
+                                       
                                     .)
          Expression
                                     (.
-                                       self.quads.flushOps()
+                                       self.quads.assignmentQuad(sym.symId)
+                                       if not self.semA.checkOp():
+                                          self.SemErr("Invalid assginment")
                                     .)
          |
          TaskCall) 
+         SYNC
          ';'
          .
 
    Type<out type>
-      =  
+      =  SYNC
       ("Robot" | "Int" | "Double" | "Bool" | "String"  | "Void" | "List")                        
                                     (.
                                        if(self.LexString() not in self.TYPE_LIST):
@@ -135,9 +159,20 @@ PRODUCTIONS
          Exp 
          [('>' | '<' | ">=" | "<=" | "==" | "!=") 
                      (.
-                        self.quads.handleOp(self.LexString())              
+                        self.quads.handleOp(self.LexString())
+                        self.semA.pushOp(self.LexString())              
                      .)
-         Exp]
+         Exp
+                     (.
+                        if not self.semA.checkOp():
+                           self.SemErr("Invalid operation")
+
+                     .)
+         ]
+                     (.
+                        self.quads.flushOps()
+
+                     .)
          .
 
    Exp
@@ -204,11 +239,11 @@ PRODUCTIONS
       =
          idConst   
                      (.
-                        s = Symbol(self.LexString())
-                        self.useVar(s)
-                        sType = self.typeVar(s)
-                        self.semA.pushType(sType)
-                        self.quads.handleVar(s.sName)
+                        symId = self.LexString()
+                        self.useVar(symId)
+                        symType = self.typeVar(symId)
+                        self.semA.pushType(symType)
+                        self.quads.handleVar(symId)
                         
                      .)              
          | 
@@ -266,17 +301,30 @@ PRODUCTIONS
       =  ',' Arguments.
 
    Tasks
-      =     
+      =  
+         SYNC
          Type<out type>      
          "Task" 
          idConst                       (. 
-                                          sName = self.LexString()
-                                          s = Symbol(sName,type) 
-                                          self.declareVar(s)
+                                          # declare a new procedure in the table
+                                          procId = self.LexString()
+                                          proc = Procedure(procId,type) 
+                                          self.declareVar(proc)
+
+                                          # enter a new scope
                                           self.symTable.scopeEntry()
+
+                                          # set current procedure
+                                          self.currentProc = proc
                                        .)
-         '(' [Params] ')' Block "End"                   
+         '(' [Params] ')' 
                                        (.
+                                          # set procedures starting point
+                                          proc.addr = Quad.QuadId+1
+                                       .)
+         Block "End"                   
+                                       (.
+                                          # exit scope
                                           self.symTable.scopeExit()
                                        .)
          [NxtTask]
@@ -287,11 +335,20 @@ PRODUCTIONS
 
    Params
       =     
+         SYNC
          Type<out type>              
          idConst                       (.
-                                          sName = self.LexString()
-                                          s = Symbol(sName,type)
-                                          self.declareVar(s)
+                                          # parameter declaration
+                                          symId = self.LexString()
+                                          sym = Symbol(symId,type)
+                                          self.declareVar(sym)
+
+                                          # add parameter to procedure
+                                          self.currentProc.addParam(sym)
+                                          print ("Se agrego a proc %s el parametro %s" % (self.currentProc.symId, symId))
+
+
+
                                        .)
          [NxtParam].
 
@@ -305,28 +362,73 @@ PRODUCTIONS
       =     Block.
 
    IfStmt
-      =     "If" '(' Expression ')' Block ["Else" Block] "End".
+      =
+         SYNC  
+         "If" '(' Expression ')'
+                                       (.
+                                          self.quads.falseJmp()
+                                       .)
+         Block [
+         SYNC
+                                       (.
+                                          self.quads.elseStmt()
+                                       .)
+         "Else" Block]
+                                       (.
+                                          self.quads.endIf()
+                                       .) 
+         SYNC
+         "End".
 
    WhileStmt
-      =     "While"  '(' Expression ')' Block "End".
+      =     
+         SYNC
+         "While"  '(' 
+                                 (.
+                                       self.quads.jumps.append(Quad.QuadId)
+                                 .)
+         Expression 
+                                 (.
+                                       self.quads.falseJmp()
+
+                                 .)
+         ')' Block 
+                                 (.
+                                       self.quads.endWhile()
+                                 .)
+         SYNC
+         "End".
 
    ForStmt
-      =     "For" idConst "In" Range [Step] Block "End".
+      =  
+         SYNC   
+         "For" idConst "In" Range Block 
+         SYNC
+         "End".
 
    Range
-      =     '(' Expression ',' Expression ')'.
-
-   Step
-      =     "Step" '(' Expression ')'.
+      =     '(' Expression ',' Expression [',' Expression ] ')'.
 
    WriteStmt         
-      =     "Print" '(' Expression ')' ';'.
+      =  
+         SYNC  
+         "Print" '(' Expression ')' 
+         SYNC
+         ';'.
 
    ReadStmt       
-      =     "Read" '(' idConst ')' ';'.
+      =  
+         SYNC   
+         "Read" '(' idConst ')' 
+         SYNC
+         ';'.
 
    ResturnStmt    
-      =     "Return" Expression ';'.
+      =  
+         SYNC   
+         "Return" Expression 
+         SYNC
+         ';'.
 
    TaskCall
       =
@@ -336,7 +438,11 @@ PRODUCTIONS
          .
 
    BreakStmt         
-      =     "Break" ';'.
+      =  
+         SYNC   
+         "Break" 
+         SYNC
+         ';'.
 
    RobotFunc
       =     '.' (RobotLook | RobotPaint | RobotWall | RobotMove).
